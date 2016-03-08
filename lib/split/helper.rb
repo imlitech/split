@@ -2,6 +2,13 @@ module Split
   module Helper
     module_function
 
+    def get_request
+      if Split.configuration.custom_request
+        return Split.configuration.custom_request.call
+      end
+      return request
+    end
+
     def ab_test(metric_descriptor, control = nil, *alternatives)
       begin
         experiment = ExperimentCatalog.find_or_initialize(metric_descriptor, control, *alternatives)
@@ -75,14 +82,26 @@ module Split
     end
 
     def override_present?(experiment_name)
+      if Split.configuration.custom_override
+        return Split.configuration.custom_override.call(experiment_name)
+      end
+      # Fetch from global params variable as fallback
       defined?(params) && params[experiment_name]
     end
 
     def override_alternative(experiment_name)
+      if Split.configuration.custom_override
+        return Split.configuration.custom_override.call(experiment_name)
+      end
+      # Fetch from global params variable as fallback
       params[experiment_name] if override_present?(experiment_name)
     end
 
     def split_generically_disabled?
+      if Split.configuration.custom_override
+        return Split.configuration.custom_override.call('SPLIT_DISABLE')
+      end
+      # Fetch from global params variable as fallback
       defined?(params) && params['SPLIT_DISABLE']
     end
 
@@ -101,12 +120,13 @@ module Split
     end
 
     def is_robot?
+      request = get_request
       defined?(request) && request.user_agent =~ Split.configuration.robot_regex
     end
 
     def is_ignored_ip_address?
       return false if Split.configuration.ignore_ip_addresses.empty?
-
+      request = get_request
       Split.configuration.ignore_ip_addresses.each do |ip|
         return true if defined?(request) && (request.ip == ip || (ip.class == Regexp && request.ip =~ ip))
       end
