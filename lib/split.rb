@@ -1,3 +1,4 @@
+# frozen_string_literal: true
 %w[algorithms
    alternative
    configuration
@@ -5,11 +6,13 @@
    experiment
    experiment_catalog
    extensions
+   goals_collection
    helper
    metric
    persistence
    encapsulated_helper
    trial
+   user
    version
    zscore].each do |f|
   require "split/#{f}"

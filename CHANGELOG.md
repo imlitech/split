@@ -1,3 +1,54 @@
+## 1.4.4 (May 9th, 2016)
+
+Bugfixes:
+
+- Increment participation if store override is true and no experiment key exists (@spheric, #380)
+
+Misc:
+
+- Deprecated `finished` method in favour of `ab_finished` (@andreibondarev, #389)
+- Added minimum version requirement to simple-random
+- Clarify finished with first option being a hash in Readme (@henrik, #382)
+- Refactoring the User abstraction (@andreibondarev, #384)
+
+## 1.4.3 (April 28th, 2016)
+
+Features:
+
+- add on_trial callback whenever a trial is started (@mtyeh411, #375)
+
+Bugfixes:
+
+- Allow algorithm configuration at experiment level (@007sumit, #376)
+
+Misc:
+
+- only choose override if it exists as valid alternative (@spheric, #377)
+
+## 1.4.2 (April 25th, 2016)
+
+Misc:
+
+- Deprecated some legacy methods (@andreibondarev, #374)
+
+## 1.4.1 (April 21st, 2016)
+
+Bugfixes:
+
+- respect manual start configuration after an experiment has been deleted (@mtyeh411, #372)
+
+Misc:
+
+- Introduce goals collection to reduce complexity of Experiment#save (@pakallis, #365)
+- Revise specs according to http://betterspecs.org/ (@hkliya, #369)
+
+## 1.4.0 (April 2nd, 2016)
+
+Features:
+
+- Added experiment filters to dashboard (@ccallebs, #363, #364)
+- Added Contributor Covenant Code of Conduct
+
 ## 1.3.2 (January 2nd, 2016)
 
 Bugfixes:

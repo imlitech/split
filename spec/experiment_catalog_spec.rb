@@ -1,3 +1,4 @@
+# frozen_string_literal: true
 require 'spec_helper'
 
 describe Split::ExperimentCatalog do
@@ -32,6 +33,21 @@ describe Split::ExperimentCatalog do
 
     it "constructs a new experiment" do
       expect(subject.find_or_create('my_exp', 'control me').control.to_s).to eq('control me')
+    end
+  end
+
+  describe '.find' do
+    it "should return an existing experiment" do
+      experiment = Split::Experiment.new('basket_text', alternatives: ['blue', 'red', 'green'])
+      experiment.save
+
+      experiment = subject.find('basket_text')
+
+      expect(experiment.name).to eq('basket_text')
+    end
+
+    it "should return nil if experiment not exist" do
+      expect(subject.find('non_existent_experiment')).to be_nil
     end
   end
 end

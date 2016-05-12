@@ -1,3 +1,4 @@
+# frozen_string_literal: true
 module Split
   class Experiment
     attr_accessor :name
@@ -22,7 +23,7 @@ module Split
       if alternatives.empty? && (exp_config = Split.configuration.experiment_for(name))
         set_alternatives_and_options(
           alternatives: load_alternatives_from_configuration,
-          goals: load_goals_from_configuration,
+          goals: Split::GoalsCollection.new(@name).load_from_configuration,
           metadata: load_metadata_from_configuration,
           resettable: exp_config[:resettable],
           algorithm: exp_config[:algorithm]
@@ -59,17 +60,16 @@ module Split
         exp_config = Split.configuration.experiment_for(name)
         if exp_config
           alts = load_alternatives_from_configuration
-          options[:goals] = load_goals_from_configuration
+          options[:goals] = Split::GoalsCollection.new(@name).load_from_configuration
           options[:metadata] = load_metadata_from_configuration
           options[:resettable] = exp_config[:resettable]
           options[:algorithm] = exp_config[:algorithm]
         end
       end
 
-      self.alternatives = alts
-      self.goals = options[:goals]
-      self.algorithm = options[:algorithm]
-      self.resettable = options[:resettable]
+      options[:alternatives] = alts
+
+      set_alternatives_and_options(options)
 
       # calculate probability that each alternative is the winner
       @alternative_probabilities = {}
@@ -83,21 +83,20 @@ module Split
         Split.redis.sadd(:experiments, name)
         start unless Split.configuration.start_manually
         @alternatives.reverse.each {|a| Split.redis.lpush(name, a.name)}
-        save_goals
+        goals_collection.save
         save_metadata
-        Split.redis.set(metadata_key, @metadata.to_json) unless @metadata.nil?
       else
         existing_alternatives = load_alternatives_from_redis
-        existing_goals = load_goals_from_redis
+        existing_goals = Split::GoalsCollection.new(@name).load_from_redis
         existing_metadata = load_metadata_from_redis
         unless existing_alternatives == @alternatives.map(&:name) && existing_goals == @goals && existing_metadata == @metadata
           reset
           @alternatives.each(&:delete)
-          delete_goals
+          goals_collection.delete
           delete_metadata
           Split.redis.del(@name)
           @alternatives.reverse.each {|a| Split.redis.lpush(name, a.name)}
-          save_goals
+          goals_collection.save
           save_metadata
         end
       end
@@ -112,9 +111,7 @@ module Split
         raise ExperimentNotFound.new("Experiment #{@name} not found")
       end
       @alternatives.each {|a| a.validate! }
-      unless @goals.nil? || goals.kind_of?(Array)
-        raise ArgumentError, 'Goals must be an array'
-      end
+      goals_collection.validate!
     end
 
     def new_record?
@@ -240,6 +237,7 @@ module Split
     end
 
     def reset
+      Split.configuration.on_before_experiment_reset.call(self)
       alternatives.each(&:reset)
       reset_winner
       Split.configuration.on_experiment_reset.call(self)
@@ -247,18 +245,18 @@ module Split
     end
 
     def delete
+      Split.configuration.on_before_experiment_delete.call(self)
+      if Split.configuration.start_manually
+        Split.redis.hdel(:experiment_start_times, @name)
+      end
       alternatives.each(&:delete)
       reset_winner
       Split.redis.srem(:experiments, name)
       Split.redis.del(name)
-      delete_goals
+      goals_collection.delete
       delete_metadata
       Split.configuration.on_experiment_delete.call(self)
       increment_version
-    end
-
-    def delete_goals
-      Split.redis.del(goals_key)
     end
 
     def delete_metadata
@@ -267,11 +265,16 @@ module Split
 
     def load_from_redis
       exp_config = Split.redis.hgetall(experiment_config_key)
-      self.resettable = exp_config['resettable']
-      self.algorithm = exp_config['algorithm']
-      self.alternatives = load_alternatives_from_redis
-      self.goals = load_goals_from_redis
-      self.metadata = load_metadata_from_redis
+
+      options = {
+        resettable: exp_config['resettable'],
+        algorithm: exp_config['algorithm'],
+        alternatives: load_alternatives_from_redis,
+        goals: Split::GoalsCollection.new(@name).load_from_redis,
+        metadata: load_metadata_from_redis
+      }
+
+      set_alternatives_and_options(options)
     end
 
     def calc_winning_alternatives
@@ -418,19 +421,6 @@ module Split
       metadata = Split.configuration.experiment_for(@name)[:metadata]
     end
 
-    def load_goals_from_configuration
-      goals = Split.configuration.experiment_for(@name)[:goals]
-      if goals.nil?
-        goals = []
-      else
-        goals.flatten
-      end
-    end
-
-    def load_goals_from_redis
-      Split.redis.lrange(goals_key, 0, -1)
-    end
-
     def load_metadata_from_redis
       meta = Split.redis.get(metadata_key)
       JSON.parse(meta) unless meta.nil?
@@ -458,13 +448,14 @@ module Split
       end
     end
 
-    def save_goals
-      @goals.reverse.each {|a| Split.redis.lpush(goals_key, a)} unless @goals.nil?
-    end
-
     def save_metadata
       Split.redis.set(metadata_key, @metadata.to_json) unless @metadata.nil?
     end
 
+    private
+
+    def goals_collection
+      Split::GoalsCollection.new(@name, @goals)
+    end
   end
 end

@@ -1,9 +1,10 @@
+# frozen_string_literal: true
 # Split's helper exposes all kinds of methods we don't want to
 # mix into our model classes.
 #
-# This module exposes only two methods
-#  - ab_test and
-#  - ab_test_finished
+# This module exposes only two methods:
+#  - ab_test()
+#  - ab_finished()
 # that can safely be mixed into any class.
 #
 # Passes the instance of the class that it's mixed into to the
@@ -14,14 +15,14 @@ module Split
 
     class ContextShim
       include Split::Helper
-      public :ab_test, :finished
+      public :ab_test, :finished, :ab_finished
 
       def initialize(context)
         @context = context
       end
 
       def ab_user
-        @ab_user ||= Split::Persistence.adapter.new(@context)
+        @ab_user ||= Split::User.new(@context)
       end
     end
 
@@ -43,6 +44,7 @@ module Split
     end
 
     def ab_test_finished(*arguments)
+      warn 'DEPRECATION WARNING: ab_test_finished is deprecated and will be removed from Split 2.0.0'
       split_context_shim.finished *arguments
     end
 

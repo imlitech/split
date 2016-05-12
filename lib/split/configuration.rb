@@ -1,3 +1,4 @@
+# frozen_string_literal: true
 module Split
   class Configuration
     attr_accessor :bots
@@ -14,10 +15,13 @@ module Split
     attr_accessor :algorithm
     attr_accessor :store_override
     attr_accessor :start_manually
+    attr_accessor :on_trial
     attr_accessor :on_trial_choose
     attr_accessor :on_trial_complete
     attr_accessor :on_experiment_reset
     attr_accessor :on_experiment_delete
+    attr_accessor :on_before_experiment_reset
+    attr_accessor :on_before_experiment_delete
     attr_accessor :include_rails_helper
     attr_accessor :beta_probability_simulations
     attr_accessor :redis_url
@@ -149,6 +153,10 @@ module Split
             experiment_config[experiment_name.to_sym][:metadata] = metadata
           end
 
+          if algorithm = value_for(settings, :algorithm)
+            experiment_config[experiment_name.to_sym][:algorithm] = algorithm
+          end
+
           if (resettable = value_for(settings, :resettable)) != nil
             experiment_config[experiment_name.to_sym][:resettable] = resettable
           end
@@ -200,6 +208,8 @@ module Split
       @db_failover_on_db_error = proc{|error|} # e.g. use Rails logger here
       @on_experiment_reset = proc{|experiment|}
       @on_experiment_delete = proc{|experiment|}
+      @on_before_experiment_reset = proc{|experiment|}
+      @on_before_experiment_delete = proc{|experiment|}
       @db_failover_allow_parameter_override = false
       @allow_multiple_experiments = false
       @enabled = true

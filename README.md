@@ -36,7 +36,7 @@ gem install split
 
 ### Rails
 
-Adding `gem 'split'` to your Gemfile will autoloaded it when rails starts up, as long as you've configured redis it will 'just work'.
+Adding `gem 'split'` to your Gemfile will autoload it when rails starts up, as long as you've configured redis it will 'just work'.
 
 ### Sinatra
 
@@ -62,7 +62,7 @@ To begin your ab test use the `ab_test` method, naming your experiment with the 
 
 It can be used to render different templates, show different text or any other case based logic.
 
-`finished` is used to make a completion of an experiment, or conversion.
+`ab_finished` is used to make a completion of an experiment, or conversion.
 
 Example: View
 
@@ -86,14 +86,14 @@ Example: Conversion tracking (in a controller!)
 ```ruby
 def buy_new_points
   # some business logic
-  finished(:new_user_free_points)
+  ab_finished(:new_user_free_points)
 end
 ```
 
 Example: Conversion tracking (in a view)
 
 ```erb
-Thanks for signing up, dude! <% finished(:signup_page_redesign) %>
+Thanks for signing up, dude! <% ab_finished(:signup_page_redesign) %>
 ```
 
 You can find more examples, tutorials and guides on the [wiki](https://github.com/splitrb/split/wiki).
@@ -151,19 +151,21 @@ It is not required to send `SPLIT_DISABLE=false` to activate Split.
 By default new AB tests will be active right after deployment. In case you would like to start new test a while after
 the deploy, you can do it by setting the `start_manually` configuration option to `true`.
 
-After choosing this option tests won't be started right after deploy, but after pressing the `Start` button in Split admin dashboard.
+After choosing this option tests won't be started right after deploy, but after pressing the `Start` button in Split admin dashboard.  If a test is deleted from the Split dashboard, then it can only be started after pressing the `Start` button whenever being re-initialized.
 
 ### Reset after completion
 
 When a user completes a test their session is reset so that they may start the test again in the future.
 
-To stop this behaviour you can pass the following option to the `finished` method:
+To stop this behaviour you can pass the following option to the `ab_finished` method:
 
 ```ruby
-finished(:experiment_name, reset: false)
+ab_finished(:experiment_name, reset: false)
 ```
 
 The user will then always see the alternative they started with.
+
+Any old unfinished experiment key will be deleted from the user's data storage if the experiment had been removed or is over and a winner had been chosen. This allows a user to enroll into any new experiment in cases when the `allow_multiple_experiments` config option is set to `false`.
 
 ### Multiple experiments at once
 
@@ -240,7 +242,8 @@ For example:
 
 ``` ruby
 Split.configure do |config|
-  config.on_trial_choose   = :log_trial_choose
+  config.on_trial  = :log_trial # run on every trial
+  config.on_trial_choose   = :log_trial_choose # run on trials with new users only
   config.on_trial_complete = :log_trial_complete
 end
 ```
@@ -249,8 +252,13 @@ Set these attributes to a method name available in the same context as the
 `ab_test` method. These methods should accept one argument, a `Trial` instance.
 
 ``` ruby
-def log_trial_choose(trial)
+def log_trial(trial)
   logger.info "experiment=%s alternative=%s user=%s" %
+    [ trial.experiment.name, trial.alternative, current_user.id ]
+end
+
+def log_trial_choose(trial)
+  logger.info "[new user] experiment=%s alternative=%s user=%s" %
     [ trial.experiment.name, trial.alternative, current_user.id ]
 end
 
@@ -284,8 +292,12 @@ For example:
 
 ``` ruby
 Split.configure do |config|
+  # after experiment reset or deleted
   config.on_experiment_reset  = -> (example) { # Do something on reset }
   config.on_experiment_delete = -> (experiment) { # Do something else on delete }
+  # before experiment reset or deleted
+  config.on_before_experiment_reset  = -> (example) { # Do something on reset }
+  config.on_before_experiment_delete = -> (experiment) { # Do something else on delete }
 end
 ```
 
@@ -433,7 +445,7 @@ ab_test(:my_first_experiment)
 and:
 
 ```ruby
-finished(:my_first_experiment)
+ab_finished(:my_first_experiment)
 ```
 
 You can also add meta data for each experiment, very useful when you need more than an alternative name to change behaviour:
@@ -445,9 +457,9 @@ Split.configure do |config|
       alternatives: ["a", "b"],
       metadata: {
         "a" => {"text" => "Have a fantastic day"},
-        "b" => {"text" => "Don't get hit by a bus"},
+        "b" => {"text" => "Don't get hit by a bus"}
       }
-    },
+    }
   }
 end
 ```
@@ -493,7 +505,7 @@ Split.configure do |config|
   config.experiments = {
     my_first_experiment: {
       alternatives: ["a", "b"],
-      metric: :my_metric,
+      metric: :my_metric
     }
   }
 end
@@ -503,7 +515,7 @@ Your code may then track a completion using the metric instead of
 the experiment name:
 
 ```ruby
-finished(:my_metric)
+ab_finished(:my_metric)
 ```
 
 You can also create a new metric by instantiating and saving a new Metric object.
@@ -538,20 +550,30 @@ end
 To complete a goal conversion, you do it like:
 
 ```ruby
-finished(link_color: "purchase")
+ab_finished(link_color: "purchase")
 ```
 
-**NOTE:** This does not mean that a single experiment can have/complete progressive goals.
+Note that if you pass additional options, that should be a separate hash:
+
+```ruby
+ab_finished({ link_color: "purchase" }, reset: false)
+```
+
+**NOTE:** This does not mean that a single experiment can complete more than one goal.
+
+Once you finish one of the goals, the test is considered to be completed, and finishing the other goal will no longer register. (Assuming the test runs with `reset: false`.)
 
 **Good Example**: Test if listing Plan A first result in more conversions to Plan A (goal: "plana_conversion") or Plan B (goal: "planb_conversion").
 
 **Bad Example**: Test if button color increases conversion rate through multiple steps of a funnel. THIS WILL NOT WORK.
 
+**Bad Example**: Test both how button color affects signup *and* how it affects login, at the same time. THIS WILL NOT WORK.
+
 ### DB failover solution
 
 Due to the fact that Redis has no automatic failover mechanism, it's
 possible to switch on the `db_failover` config option, so that `ab_test`
-and `finished` will not crash in case of a db failure. `ab_test` always
+and `ab_finished` will not crash in case of a db failure. `ab_test` always
 delivers alternative A (the first one) in that case.
 
 It's also possible to set a `db_failover_on_db_error` callback (proc)
@@ -628,7 +650,7 @@ trial.choose!
 trial.alternative.name
 
 # if the goal has been achieved, increment the successful completions for this alternative.
-if goal_acheived?
+if goal_achieved?
   trial.complete!
 end
 

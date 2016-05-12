@@ -1,3 +1,4 @@
+# frozen_string_literal: true
 module Split
   module Helper
     module_function
@@ -12,7 +13,6 @@ module Split
     def ab_test(metric_descriptor, control = nil, *alternatives)
       begin
         experiment = ExperimentCatalog.find_or_initialize(metric_descriptor, control, *alternatives)
-
         alternative = if Split.configuration.enabled
           experiment.save
           trial = Trial.new(:user => ab_user, :experiment => experiment,
@@ -66,7 +66,7 @@ module Split
       end
     end
 
-    def finished(metric_descriptor, options = {:reset => true})
+    def ab_finished(metric_descriptor, options = {:reset => true})
       return if exclude_visitor? || Split.configuration.disabled?
       metric_descriptor, goals = normalize_metric(metric_descriptor)
       experiments = Metric.possible_experiments(metric_descriptor)
@@ -79,6 +79,11 @@ module Split
     rescue => e
       raise unless Split.configuration.db_failover
       Split.configuration.db_failover_on_db_error.call(e)
+    end
+
+    def finished(metric_descriptor, options = {:reset => true})
+      warn 'DEPRECATION WARNING: finished method was renamed to ab_finished and will be removed in Split 2.0.0'
+      ab_finished(metric_descriptor, options)
     end
 
     def override_present?(experiment_name)
@@ -106,13 +111,14 @@ module Split
     end
 
     def begin_experiment(experiment, alternative_name = nil)
+      warn 'DEPRECATION WARNING: begin_experiment is deprecated and will be removed from Split 2.0.0'
       alternative_name ||= experiment.control.name
       ab_user[experiment.key] = alternative_name
       alternative_name
     end
 
     def ab_user
-      @ab_user ||= Split::Persistence.adapter.new(self)
+      @ab_user ||= User.new(self)
     end
 
     def exclude_visitor?
@@ -134,16 +140,7 @@ module Split
     end
 
     def active_experiments
-      experiment_pairs = {}
-      ab_user.keys.each do |key|
-        key_without_version = key.split(/\:\d(?!\:)/)[0]
-        Metric.possible_experiments(key_without_version).each do |experiment|
-          if !experiment.has_winner?
-            experiment_pairs[key_without_version] = ab_user[key]
-          end
-        end
-      end
-      return experiment_pairs
+      ab_user.active_experiments
     end
 
     def normalize_metric(metric_descriptor)

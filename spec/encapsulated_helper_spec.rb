@@ -1,3 +1,4 @@
+# frozen_string_literal: true
 require 'spec_helper'
 
 describe Split::EncapsulatedHelper do
@@ -5,7 +6,7 @@ describe Split::EncapsulatedHelper do
 
   before do
     allow_any_instance_of(Split::EncapsulatedHelper::ContextShim).to receive(:ab_user)
-        .and_return({})
+        .and_return(mock_user)
   end
 
   def params

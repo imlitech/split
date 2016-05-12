@@ -1,3 +1,4 @@
+# frozen_string_literal: true
 module Split
   class Trial
     attr_accessor :experiment
@@ -40,8 +41,7 @@ module Split
           Array(goals).each {|g| alternative.increment_completion(g) }
         end
 
-        context.send(Split.configuration.on_trial_complete, self) \
-            if Split.configuration.on_trial_complete && context
+        run_callback context, Split.configuration.on_trial_complete
       end
     end
 
@@ -49,12 +49,16 @@ module Split
     # method is guaranteed to only run once, and will skip the alternative choosing process if run
     # a second time.
     def choose!(context = nil)
+      @user.cleanup_old_experiments!
       # Only run the process once
       return alternative if @alternative_choosen
 
-      if @options[:override]
+      if override_is_alternative?
         self.alternative = @options[:override]
-      elsif @options[:disabled] || !Split.configuration.enabled
+        if should_store_alternative? && !@user[@experiment.key]
+          self.alternative.increment_participation
+        end
+      elsif @options[:disabled] || Split.configuration.disabled?
         self.alternative = @experiment.control
       elsif @experiment.has_winner?
         self.alternative = @experiment.winner
@@ -71,18 +75,25 @@ module Split
           # Increment the number of participants since we are actually choosing a new alternative
           self.alternative.increment_participation
 
-          # Run the post-choosing hook on the context
-          context.send(Split.configuration.on_trial_choose, self) \
-              if Split.configuration.on_trial_choose && context
+          run_callback context, Split.configuration.on_trial_choose
         end
       end
 
       @user[@experiment.key] = alternative.name if should_store_alternative?
       @alternative_choosen = true
+      run_callback context, Split.configuration.on_trial unless @options[:disabled] || Split.configuration.disabled?
       alternative
     end
 
     private
+
+    def run_callback(context, callback_name)
+      context.send(callback_name, self) if callback_name && context.respond_to?(callback_name, true)
+    end
+
+    def override_is_alternative?
+      @experiment.alternatives.map(&:name).include?(@options[:override])
+    end
 
     def should_store_alternative?
       if @options[:override] || @options[:disabled]
@@ -94,22 +105,12 @@ module Split
 
     def cleanup_old_versions
       if @experiment.version > 0
-        keys = @user.keys.select { |k| k.match(Regexp.new(@experiment.name)) }
-        keys_without_experiment(keys).each { |key| @user.delete(key) }
+        @user.cleanup_old_versions!(@experiment)
       end
     end
 
     def exclude_user?
-      @options[:exclude] || @experiment.start_time.nil? || max_experiments_reached?
-    end
-
-    def max_experiments_reached?
-      !Split.configuration.allow_multiple_experiments &&
-          keys_without_experiment(@user.keys).length > 0
-    end
-
-    def keys_without_experiment(keys)
-      keys.reject { |k| k.match(Regexp.new("^#{@experiment.key}(:finished)?$")) }
+      @options[:exclude] || @experiment.start_time.nil? || @user.max_experiments_reached?(@experiment.key)
     end
   end
 end
